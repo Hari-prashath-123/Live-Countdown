@@ -1,16 +1,28 @@
 import { NextResponse } from "next/server";
 
 import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 type TimerPayload = {
   target_time?: string | null;
   is_active?: boolean;
+  background_color?: string | null;
+  background_image_url?: string | null;
+  text_color?: string | null;
 };
 
 export async function GET() {
-  const { data, error } = await supabase
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const client = serviceKey
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL as string, serviceKey, {
+        auth: { persistSession: false },
+      })
+    : supabase;
+
+  const { data, error } = await client
     .from("timer_state")
-    .select("target_time,is_active")
+    .select("target_time,is_active,background_color,background_image_url,text_color")
     .eq("id", 1)
     .single();
 
@@ -33,16 +45,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
   }
 
-  const { target_time, is_active } = payload;
+  const { target_time, is_active, background_color, background_image_url, text_color } = payload;
 
-  if (typeof is_active !== "boolean") {
+  const hasStyleUpdate =
+    background_color !== undefined ||
+    background_image_url !== undefined ||
+    text_color !== undefined;
+
+  const hasTimerUpdate = target_time !== undefined || is_active !== undefined;
+
+  if (!hasStyleUpdate && !hasTimerUpdate) {
+    return NextResponse.json(
+      { error: "Provide at least one field to update." },
+      { status: 400 }
+    );
+  }
+
+  if (is_active !== undefined && typeof is_active !== "boolean") {
     return NextResponse.json(
       { error: "Field is_active must be a boolean." },
       { status: 400 }
     );
   }
 
-  if (is_active && !target_time) {
+  if (is_active === true && !target_time) {
     return NextResponse.json(
       { error: "target_time is required when starting the timer." },
       { status: 400 }
@@ -60,21 +86,56 @@ export async function POST(request: Request) {
     );
   }
 
-  const updatePayload = {
-    target_time: target_time ?? null,
-    is_active,
-  };
+  const updatePayload: Record<string, string | boolean | null> = {};
 
-  const { data, error } = await supabase
+  if (target_time !== undefined) {
+    updatePayload.target_time = target_time ?? null;
+  }
+
+  if (is_active !== undefined) {
+    updatePayload.is_active = is_active;
+  }
+
+  if (background_color !== undefined) {
+    updatePayload.background_color = background_color ?? null;
+  }
+
+  if (background_image_url !== undefined) {
+    updatePayload.background_image_url = background_image_url ?? null;
+  }
+
+  if (text_color !== undefined) {
+    updatePayload.text_color = text_color ?? null;
+  }
+
+  // Prefer using a server-side service role key for updates so RLS doesn't block.
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!serviceKey) {
+    console.error("Missing SUPABASE_SERVICE_ROLE_KEY in environment");
+    return NextResponse.json(
+      { error: "Server misconfigured: missing service role key." },
+      { status: 500 }
+    );
+  }
+
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+    serviceKey,
+    { auth: { persistSession: false } }
+  );
+
+  const { data, error } = await supabaseAdmin
     .from("timer_state")
     .update(updatePayload)
     .eq("id", 1)
-    .select("target_time,is_active")
+    .select("target_time,is_active,background_color,background_image_url,text_color")
     .single();
 
   if (error) {
+    console.error("Supabase update error:", error);
     return NextResponse.json(
-      { error: "Failed to update timer state." },
+      { error: error.message ?? "Failed to update timer state.", details: error },
       { status: 500 }
     );
   }

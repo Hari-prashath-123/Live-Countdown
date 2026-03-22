@@ -7,6 +7,9 @@ import { supabase } from "@/lib/supabase";
 type TimerApiResponse = {
   target_time: string | null;
   is_active: boolean;
+  background_color?: string | null;
+  background_image_url?: string | null;
+  text_color?: string | null;
 };
 
 type CountdownState = {
@@ -46,6 +49,15 @@ export default function CountdownTimer() {
   const [hasEnded, setHasEnded] = useState(false);
   const [targetTime, setTargetTime] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<CountdownState>(EMPTY_COUNTDOWN);
+  const [backgroundColor, setBackgroundColor] = useState("#020617");
+  const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
+  const [textColor, setTextColor] = useState("#f4f4f5");
+
+  function applyThemeState(payload: TimerApiResponse) {
+    setBackgroundColor(payload.background_color ?? "#020617");
+    setBackgroundImageUrl(payload.background_image_url ?? null);
+    setTextColor(payload.text_color ?? "#f4f4f5");
+  }
 
   function applyTimerState(nextTargetTime: string | null, nextIsActive: boolean) {
     setTargetTime(nextTargetTime);
@@ -90,6 +102,7 @@ export default function CountdownTimer() {
         }
 
         applyTimerState(data.target_time, Boolean(data.is_active));
+        applyThemeState(data);
       } catch {
         if (!isMounted) {
           return;
@@ -98,7 +111,7 @@ export default function CountdownTimer() {
         setIsActive(false);
         setTargetTime(null);
         setRemaining(EMPTY_COUNTDOWN);
-        setHasEnded(true);
+        setHasEnded(false);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -119,14 +132,33 @@ export default function CountdownTimer() {
         (payload) => {
           const updated = payload.new as TimerApiResponse;
           applyTimerState(updated.target_time, Boolean(updated.is_active));
+          applyThemeState(updated);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          fetchTimerState();
+        }
+      });
+
+    const poll = setInterval(() => {
+      fetchTimerState();
+    }, 3000);
+
+    function onVisible() {
+      if (document.visibilityState === "visible") {
+        fetchTimerState();
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
 
     fetchTimerState();
 
     return () => {
       isMounted = false;
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
@@ -169,29 +201,67 @@ export default function CountdownTimer() {
   );
 
   if (isLoading) {
-    return <p className="text-center text-lg text-zinc-300">Loading timer...</p>;
+    return (
+      <section
+        className="relative flex min-h-screen w-full items-center justify-center px-6 py-10"
+        style={{ backgroundColor }}
+      >
+        <p className="text-center text-lg" style={{ color: textColor }}>
+          Loading timer...
+        </p>
+      </section>
+    );
   }
 
   if (!isActive) {
     return (
-      <p className="text-center text-3xl font-semibold tracking-wide text-zinc-100 sm:text-5xl">
-        {hasEnded ? "Timer Ended" : "Waiting to Start"}
-      </p>
+      <section
+        className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-6 py-10"
+        style={{
+          backgroundColor,
+          backgroundImage: backgroundImageUrl
+            ? `linear-gradient(rgba(2,6,23,0.45), rgba(2,6,23,0.65)), url("${backgroundImageUrl}")`
+            : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.18)_0%,rgba(255,255,255,0)_48%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(125deg,rgba(15,23,42,0.15)_20%,rgba(2,6,23,0.75)_70%)]" />
+        <p className="text-center text-3xl font-semibold tracking-wide sm:text-5xl" style={{ color: textColor }}>
+          {hasEnded ? "Timer Ended" : "Waiting to Start"}
+        </p>
+      </section>
     );
   }
 
   return (
-    <section className="w-full max-w-5xl">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
+    <section
+      className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-6 py-10"
+      style={{
+        backgroundColor,
+        backgroundImage: backgroundImageUrl
+          ? `linear-gradient(rgba(2,6,23,0.45), rgba(2,6,23,0.65)), url("${backgroundImageUrl}")`
+          : undefined,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.2)_0%,rgba(255,255,255,0)_42%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(15,23,42,0.1)_0%,rgba(2,6,23,0.75)_72%)]" />
+      <div className="grid w-full max-w-5xl grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
         {units.map((unit) => (
           <article
             key={unit.label}
             className="rounded-2xl border border-zinc-700/70 bg-zinc-900/70 p-4 text-center shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_14px_30px_rgba(0,0,0,0.45)] backdrop-blur-md sm:p-6"
           >
-            <p className="text-4xl font-black leading-none tracking-tight text-zinc-100 sm:text-6xl">
+            <p className="text-4xl font-black leading-none tracking-tight sm:text-6xl" style={{ color: textColor }}>
               {unit.value}
             </p>
-            <p className="mt-3 text-xs font-medium tracking-[0.18em] text-zinc-400 uppercase sm:text-sm">
+            <p
+              className="mt-3 text-xs font-medium tracking-[0.18em] uppercase sm:text-sm"
+              style={{ color: textColor, opacity: 0.8 }}
+            >
               {unit.label}
             </p>
           </article>
